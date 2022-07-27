@@ -9,6 +9,7 @@ const io = new Server(3001, {
 });
 
 const persistStateChangeAsync = async (foodieGroupMap, foodieGroupId) => {
+  console.log({ foodieGroupMap, foodieGroupId });
   await prisma.foodieGroup.update({
     where: { id: foodieGroupId },
     data: { foodieGroupState: superjson.stringify(foodieGroupMap) },
