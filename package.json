@@ -1,0 +1,30 @@
+{
+  "name": "websocket",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "nodemon --watch . index.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@swc/core": "^1.2.218",
+    "@swc/helpers": "^0.4.3",
+    "@types/node": "^18.6.1",
+    "@typescript-eslint/eslint-plugin": "^5.30.7",
+    "@typescript-eslint/parser": "^5.30.7",
+    "eslint": "^8.20.0",
+    "eslint-config-prettier": "^8.5.0",
+    "nodemon": "^2.0.19",
+    "prisma": "^4.1.0",
+    "regenerator-runtime": "^0.13.9",
+    "ts-node": "^10.9.1"
+  },
+  "dependencies": {
+    "@prisma/client": "^4.1.0",
+    "socket.io": "^4.5.1",
+    "superjson": "^1.9.1"
+  }
+}

@@ -1,0 +1,10 @@
+{
+    "compilerOptions": {
+        "target": "ES2015",
+        "esModuleInterop": true,
+        "module": "CommonJS"
+    },
+    "ts-node": {
+        "swc": true
+    },
+}
