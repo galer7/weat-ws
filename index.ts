@@ -81,8 +81,7 @@ const m: Map<string, Map<string, Array<object>>> = new Map();
         // update group state so that we can render RT updates
         const foodieGroupMap: Map<string, object> | undefined =
           m.get(foodieGroupId);
-        if (!foodieGroupMap)
-          console.log(`user ${name} does not exist on FG ${foodieGroupId}`);
+        if (!foodieGroupMap) return;
         foodieGroupMap.set(name, userState);
         await persistStateChangeAsync(foodieGroupMap, foodieGroupId);
 
@@ -98,38 +97,60 @@ const m: Map<string, Map<string, Array<object>>> = new Map();
       }
     );
 
-    socket.on("user:state:updated", async (name, foodieGroupId, userState) => {
-      console.log("received user:state:updated event", {
-        name,
-        foodieGroupId,
-        userState,
-      });
+    socket.on(
+      "user:state:updated",
+      async (name, foodieGroupId, userState: object[] | undefined) => {
+        console.log("received user:state:updated event", {
+          name,
+          foodieGroupId,
+          userState,
+        });
 
-      console.log(m);
-      // update group state so that we can render RT updates
-      if (!m.get(foodieGroupId)) {
-        console.log(`user ${name} does not exist on FG ${foodieGroupId}`);
-        // TODO: remove this, it should theoretically exist already
-        m.set(foodieGroupId, new Map());
+        console.log(m);
+        // update group state so that we can render RT updates
+        if (!m.get(foodieGroupId)) {
+          console.log(`user ${name} does not exist on FG ${foodieGroupId}`);
+          // TODO: remove this, it should theoretically exist already
+          m.set(foodieGroupId, new Map());
+        }
+        const foodieGroupMap: Map<string, object> | undefined =
+          m.get(foodieGroupId);
+
+        let isOnlyOneLeft = false;
+        // if userState comes undefined, it means it either left the group or signed-out
+        if (!userState) {
+          foodieGroupMap.delete(name);
+          console.log("after delete name", { foodieGroupMap });
+
+          // if there is only one more member in the foodieGroup after another user left, delete the foodieGroup from the in-memory map
+          if (foodieGroupMap.size === 1) {
+            isOnlyOneLeft = true;
+            m.delete(foodieGroupId);
+            console.log("after delete foodiegroup", { m });
+          }
+        } else {
+          foodieGroupMap.set(name, userState);
+        }
+
+        if (!isOnlyOneLeft) {
+          // the foodieGroup from the DB is deleted through TRPC from Next.js app in this case
+          await persistStateChangeAsync(foodieGroupMap, foodieGroupId);
+        }
+
+        console.log(m);
+
+        console.log("emit server:state:updated", [
+          superjson.stringify(foodieGroupMap.get(name)),
+          name,
+        ]);
+
+        io.to(foodieGroupId).emit(
+          "server:state:updated",
+          superjson.stringify(userState),
+          name
+        );
       }
-      const foodieGroupMap: Map<string, object> | undefined =
-        m.get(foodieGroupId);
-      foodieGroupMap.set(name, userState);
-      await persistStateChangeAsync(foodieGroupMap, foodieGroupId);
-
-      console.log(m);
-
-      console.log("emit server:state:updated", [
-        superjson.stringify(foodieGroupMap.get(name)),
-        name,
-      ]);
-
-      io.to(foodieGroupId).emit(
-        "server:state:updated",
-        superjson.stringify(userState),
-        name
-      );
-    });
+    );
   });
 
   console.log("registered all handlers!");
