@@ -9,7 +9,6 @@ processes = []
 builder = "heroku/buildpacks:20"
 
 [env]
-DATABASE_URL = "mysql://0joroioijqc8:pscale_pw_dQKR-ITihWxi6M9vsJ00d6fPVhrwr-fqxmLRpm_5P5o@ppde19yaxbvi.eu-central-1.psdb.cloud/weat?sslaccept=strict"
 PORT = "8080"
 
 [experimental]
