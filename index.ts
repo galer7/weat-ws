@@ -4,9 +4,14 @@ import superjson from "superjson";
 import { FoodieGroup } from "@prisma/client";
 import { GroupUserState } from "./types";
 
-const io = new Server(3001, {
+const io = new Server(process.env.PORT, {
   cors: {
-    origin: "*",
+    origin: [
+      "http://localhost:*",
+      "https://weat-galer7.vercel.app:*",
+      "https://weat-rho.vercel.app:*",
+      "https://weat.galer7.com:*",
+    ],
   },
 });
 
@@ -15,6 +20,7 @@ const persistStateChangeAsync = async (
   foodieGroupId: string
 ) => {
   console.log({ foodieGroupMap, foodieGroupId });
+  console.log(await prisma.foodieGroup.findMany({ where: {} }));
   await prisma.foodieGroup.update({
     where: { id: foodieGroupId },
     data: { foodieGroupState: superjson.stringify(foodieGroupMap) },

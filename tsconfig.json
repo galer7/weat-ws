@@ -2,7 +2,8 @@
     "compilerOptions": {
         "target": "ES2015",
         "esModuleInterop": true,
-        "module": "CommonJS"
+        "module": "CommonJS",
+        "outDir": "dist"
     },
     "ts-node": {
         "swc": true
