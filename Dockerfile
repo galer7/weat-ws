@@ -1,8 +1,6 @@
 FROM node:17-alpine as build-image
 WORKDIR /usr/src/app
-COPY package*.json ./
-COPY tsconfig.json ./
-COPY ./src ./src
+COPY . .
 RUN npm ci
 RUN npx tsc
 
@@ -13,4 +11,4 @@ COPY --from=build-image ./usr/src/app/dist ./dist
 RUN npm ci --production
 COPY . .
 EXPOSE 8080
-CMD [ "node", "dist/index.js" ]
+CMD ["node", "dist/index.js"]

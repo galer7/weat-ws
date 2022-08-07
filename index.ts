@@ -3,8 +3,11 @@ import { prisma } from "./prisma/client";
 import superjson from "superjson";
 import { FoodieGroup } from "@prisma/client";
 import { GroupUserState } from "./types";
+import { createServer } from "http";
 
-const io = new Server(process.env.PORT, {
+const httpServer = createServer();
+
+const io = new Server(httpServer, {
   cors: {
     origin: [
       "http://localhost:*",
@@ -201,6 +204,8 @@ const m: Map<string, Map<string, GroupUserState>> = new Map();
       }
     );
   });
+
+  httpServer.listen(parseInt(process.env.PORT) || 8080);
 
   console.log("registered all handlers!");
 })();
