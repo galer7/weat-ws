@@ -1,13 +1,17 @@
-import { Server, Socket } from "socket.io";
-import { prisma } from "./prisma/client";
+import { Server } from "socket.io";
+import { prisma } from "../prisma/client";
 import superjson from "superjson";
 import { FoodieGroup } from "@prisma/client";
-import { GroupUserState } from "./types";
+import {
+  ClientToServerEvents,
+  GroupUserState,
+  ServerToClientEvents,
+} from "./types";
 import { createServer } from "http";
 
 const httpServer = createServer();
 
-const io = new Server(httpServer, {
+const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
   cors: {
     origin: [
       "http://localhost:*",
@@ -42,10 +46,9 @@ const m: Map<string, Map<string, GroupUserState>> = new Map();
   );
   console.log(m);
 
-  io.on("connection", (socket: Socket) => {
+  io.on("connection", (socket) => {
     socket.on("user:first:render", (foodieGroupId) => {
-      const foodieGroupMap: Map<string, object> | undefined =
-        m.get(foodieGroupId);
+      const foodieGroupMap = m.get(foodieGroupId);
 
       console.log({ foodieGroupMap });
 
@@ -91,62 +94,43 @@ const m: Map<string, Map<string, GroupUserState>> = new Map();
     );
 
     socket.on(
-      "user:invite:accepted",
+      "user:invite:response",
       async (name, foodieGroupId, userState) => {
-        // add socket which accepted the invite to the room
-        socket.join(foodieGroupId);
-
-        // update group state so that we can render RT updates
-        const foodieGroupMap: Map<string, GroupUserState> | undefined =
-          m.get(foodieGroupId);
+        const foodieGroupMap = m.get(foodieGroupId);
         if (!foodieGroupMap) return;
 
-        foodieGroupMap.set(name, userState);
-        await persistStateChangeAsync(foodieGroupMap, foodieGroupId);
+        if (userState) {
+          // add socket which accepted the invite to the room
+          socket.join(foodieGroupId);
 
-        // TODO: Create here the foodieGroup in the DB, not from the next.js
+          foodieGroupMap.set(name, userState);
+          await persistStateChangeAsync(foodieGroupMap, foodieGroupId);
 
-        // we do this foreach because we want to send the invited user all group user states
-        foodieGroupMap.forEach((userState, name) => {
+          // we do this foreach because we want to send the invited user all group user states
+          foodieGroupMap.forEach((userState, name) => {
+            io.to(foodieGroupId).emit(
+              "server:state:updated",
+              superjson.stringify(userState),
+              name
+            );
+          });
+        } else {
+          foodieGroupMap.delete(name);
+
+          if (foodieGroupMap.size === 1) {
+            m.delete(foodieGroupId);
+          } else {
+            await persistStateChangeAsync(foodieGroupMap, foodieGroupId);
+          }
+
           io.to(foodieGroupId).emit(
             "server:state:updated",
-            superjson.stringify(userState),
+            superjson.stringify(undefined),
             name
           );
-        });
+        }
       }
     );
-
-    socket.on("user:invite:refused", async (name, foodieGroupId) => {
-      // add socket which accepted the invite to the room
-
-      console.log("received user:invite:refused", {
-        name,
-        foodieGroupId,
-      });
-
-      // update group state so that we can render RT updates
-      const foodieGroupMap: Map<string, GroupUserState> | undefined =
-        m.get(foodieGroupId);
-      if (!foodieGroupMap) return;
-
-      foodieGroupMap.delete(name);
-
-      // should be === 1 but you never know
-      if (foodieGroupMap.size === 1) {
-        m.delete(foodieGroupId);
-      } else {
-        await persistStateChangeAsync(foodieGroupMap, foodieGroupId);
-
-        // TODO: Create here the foodieGroup in the DB, not from the next.js
-      }
-
-      io.to(foodieGroupId).emit(
-        "server:state:updated",
-        superjson.stringify(undefined),
-        name
-      );
-    });
 
     socket.on(
       "user:state:updated",
@@ -164,8 +148,7 @@ const m: Map<string, Map<string, GroupUserState>> = new Map();
           // TODO: remove this, it should theoretically exist already
           m.set(foodieGroupId, new Map());
         }
-        const foodieGroupMap: Map<string, GroupUserState> | undefined =
-          m.get(foodieGroupId);
+        const foodieGroupMap = m.get(foodieGroupId);
 
         let isOnlyOneLeft = false;
         // if userState comes undefined, it means it either left the group or signed-out
