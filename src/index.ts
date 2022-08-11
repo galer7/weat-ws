@@ -50,7 +50,8 @@ const m: Map<string, Map<string, GroupUserState>> = new Map();
     socket.on("user:first:render", (foodieGroupId) => {
       const foodieGroupMap = m.get(foodieGroupId);
 
-      console.log({ foodieGroupMap });
+      console.log("user:first:render:", { foodieGroupMap, foodieGroupId });
+      if (!foodieGroupMap) return;
 
       socket.join(foodieGroupId);
       socket.emit("server:first:render", superjson.stringify(foodieGroupMap));
