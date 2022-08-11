@@ -8,6 +8,9 @@ processes = []
 [build]
 builder = "heroku/buildpacks:20"
 
+[build.args]
+NODE_ENV="production"
+
 [env]
 PORT = "8080"
 
