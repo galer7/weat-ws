@@ -22,6 +22,11 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
   },
 });
 
+io.use((socket, next) => {
+  //   const token = socket.handshake.auth.token;
+  next();
+});
+
 const persistStateChangeAsync = async (
   foodieGroupMap: Map<string, GroupUserState>,
   foodieGroupId: string
@@ -75,17 +80,30 @@ const m: Map<string, Map<string, GroupUserState>> = new Map();
 
         // if it is the first invite, the sender sends its user state also
         if (!m.has(foodieGroupId)) {
+          const [{ image: fromImage }, { image: toImage }] = await Promise.all([
+            prisma.user.findUnique({ where: { name: from } }),
+            prisma.user.findUnique({ where: { name: to } }),
+          ]);
+
           m.set(
             foodieGroupId,
             new Map([
-              [from, fromUserState],
-              [to, { isInviteAccepted: false, restaurants: [] }],
+              [from, { ...fromUserState, image: fromImage }],
+              [
+                to,
+                { isInviteAccepted: false, restaurants: [], image: toImage },
+              ],
             ])
           );
         } else {
+          const { image: toImage } = await prisma.user.findUnique({
+            where: { name: to },
+          });
+
           m.get(foodieGroupId).set(to, {
             isInviteAccepted: false,
             restaurants: [],
+            image: toImage,
           });
         }
         await persistStateChangeAsync(m.get(foodieGroupId), foodieGroupId);

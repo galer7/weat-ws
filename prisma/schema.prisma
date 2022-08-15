@@ -12,7 +12,28 @@ datasource db {
     referentialIntegrity = "prisma"
 }
 
+model Session {
+    id           String   @id @default(cuid())
+    sessionToken String   @unique
+    userId       String
+    expires      DateTime
+    user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model User {
+    id            String       @id @default(cuid())
+    name          String       @unique
+    email         String       @unique
+    emailVerified DateTime?
+    password      String?
+    image         String?
+    sessions      Session[]
+    foodieGroup   FoodieGroup? @relation(fields: [foodieGroupId], references: [id], onDelete: NoAction)
+    foodieGroupId String?
+}
+
 model FoodieGroup {
     id               String  @id @default(cuid())
+    users            User[]
     foodieGroupState String? @db.Text
 }

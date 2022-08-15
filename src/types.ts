@@ -14,6 +14,7 @@ export type SelectedRestaurant = {
 };
 
 export type GroupUserState = {
+  image: string;
   isInviteAccepted: boolean;
   restaurants: SelectedRestaurant[];
 };
