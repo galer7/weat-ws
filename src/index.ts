@@ -22,11 +22,6 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
   },
 });
 
-io.use((socket, next) => {
-  //   const token = socket.handshake.auth.token;
-  next();
-});
-
 const persistStateChangeAsync = async (
   foodieGroupMap: Map<string, GroupUserState>,
   foodieGroupId: string
@@ -41,6 +36,12 @@ const persistStateChangeAsync = async (
 
 const m: Map<string, Map<string, GroupUserState>> = new Map();
 
+type TokenToUserInfo = {
+  userId: string;
+  sockets: Map<string, true>;
+};
+const mapTokenToSockets: Map<string, TokenToUserInfo> = new Map();
+
 (async () => {
   const allFoodieGroups = await prisma.foodieGroup.findMany();
   allFoodieGroups.forEach(
@@ -49,9 +50,28 @@ const m: Map<string, Map<string, GroupUserState>> = new Map();
       m.set(id, superjson.parse(stringifiedFoodieGroupState));
     }
   );
-  console.log(m);
 
-  io.on("connection", (socket) => {
+  io.on("connection", async (socket) => {
+    const token = socket.handshake.auth.token;
+    if (!token) return;
+    if (!mapTokenToSockets.has(token)) {
+      const { userId } = await prisma.session.findFirst({
+        where: { sessionToken: token },
+      });
+      await prisma.user.update({
+        where: { id: userId },
+        data: { online: true },
+      });
+      mapTokenToSockets.set(token, {
+        sockets: new Map([[socket.id, true]]),
+        userId,
+      });
+    } else {
+      mapTokenToSockets.get(token).sockets.set(socket.id, true);
+    }
+
+    console.log({ mapTokenToSockets });
+
     socket.on("user:first:render", (foodieGroupId) => {
       const foodieGroupMap = m.get(foodieGroupId);
 
@@ -205,6 +225,42 @@ const m: Map<string, Map<string, GroupUserState>> = new Map();
         );
       }
     );
+
+    socket.on("disconnect", async () => {
+      const token = socket.handshake.auth.token;
+
+      console.log("before disconnect before delete", {
+        token,
+        mapTokenToSockets,
+        socketId: socket.id,
+      });
+
+      const tokenToSocketsMap = mapTokenToSockets.get(token).sockets;
+      tokenToSocketsMap.delete(socket.id);
+
+      console.log("before disconnect after delete", {
+        token,
+        mapTokenToSockets,
+        socketId: socket.id,
+      });
+
+      if (tokenToSocketsMap.size > 0) return;
+
+      // user has no more sockets left, so set to offline
+
+      await prisma.user.update({
+        where: { id: mapTokenToSockets.get(token).userId },
+        data: { online: false },
+      });
+
+      mapTokenToSockets.delete(token);
+
+      console.log("mapTokenToSockets after disconnect", {
+        mapTokenToSockets,
+        token,
+        socketId: socket.id,
+      });
+    });
   });
 
   httpServer.listen(parseInt(process.env.PORT) || 8080);
