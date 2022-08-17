@@ -26,7 +26,7 @@ const persistStateChangeAsync = async (
   foodieGroupMap: Map<string, GroupUserState>,
   foodieGroupId: string
 ) => {
-  console.log({ foodieGroupMap, foodieGroupId });
+  console.log("persistStateChangeAsync", { foodieGroupMap, foodieGroupId });
   console.log(await prisma.foodieGroup.findMany({ where: {} }));
   await prisma.foodieGroup.update({
     where: { id: foodieGroupId },
@@ -35,12 +35,6 @@ const persistStateChangeAsync = async (
 };
 
 const m: Map<string, Map<string, GroupUserState>> = new Map();
-
-type TokenToUserInfo = {
-  userId: string;
-  sockets: Map<string, true>;
-};
-const mapTokenToSockets: Map<string, TokenToUserInfo> = new Map();
 
 (async () => {
   const allFoodieGroups = await prisma.foodieGroup.findMany();
@@ -51,27 +45,29 @@ const mapTokenToSockets: Map<string, TokenToUserInfo> = new Map();
     }
   );
 
-  io.on("connection", async (socket) => {
+  io.use(async (socket, next) => {
     const token = socket.handshake.auth.token;
-    if (!token) return;
-    if (!mapTokenToSockets.has(token)) {
+    if (!token) {
+      next();
+    }
+
+    // if the room was deleted previously or is first login on server
+    if (!io.sockets.adapter.rooms.has(token)) {
       const { userId } = await prisma.session.findFirst({
         where: { sessionToken: token },
       });
+
       await prisma.user.update({
         where: { id: userId },
         data: { online: true },
       });
-      mapTokenToSockets.set(token, {
-        sockets: new Map([[socket.id, true]]),
-        userId,
-      });
-    } else {
-      mapTokenToSockets.get(token).sockets.set(socket.id, true);
     }
 
-    console.log({ mapTokenToSockets });
+    socket.join(token);
+    next();
+  });
 
+  io.on("connection", async (socket) => {
     socket.on("user:first:render", (foodieGroupId) => {
       const foodieGroupMap = m.get(foodieGroupId);
 
@@ -84,7 +80,7 @@ const mapTokenToSockets: Map<string, TokenToUserInfo> = new Map();
 
     socket.on(
       "user:invite:sent",
-      async (from, to, foodieGroupId, fromUserState: GroupUserState) => {
+      async (from, to, foodieGroupId, fromUserState) => {
         // create room on first group invite sent
         console.log("received user:invite:sent", {
           from,
@@ -93,34 +89,55 @@ const mapTokenToSockets: Map<string, TokenToUserInfo> = new Map();
           fromUserState,
         });
 
-        // send to all users ever unfortunately
-        // TODO: associate socket with session
-        io.emit("server:invite:sent", from, to, foodieGroupId);
+        // send to all sockets associated with that userId
+        const { sessions } = await prisma.user.findFirst({
+          where: { id: to },
+          include: { sessions: true },
+        });
+
+        sessions.forEach(({ sessionToken }) => {
+          io.to(sessionToken).emit(
+            "server:invite:sent",
+            {name: from.name, id: from.id},
+            foodieGroupId
+          );
+        });
         socket.join(foodieGroupId);
 
         // if it is the first invite, the sender sends its user state also
         if (!m.has(foodieGroupId)) {
-          const [{ image: fromImage }, { image: toImage }] = await Promise.all([
-            prisma.user.findUnique({ where: { name: from } }),
-            prisma.user.findUnique({ where: { name: to } }),
+          const [
+            { image: fromImage, name: fromName },
+            { image: toImage, name: toName },
+          ] = await Promise.all([
+            prisma.user.findUnique({ where: { id: from.id } }),
+            prisma.user.findUnique({ where: { id: to } }),
           ]);
 
           m.set(
             foodieGroupId,
             new Map([
-              [from, { ...fromUserState, image: fromImage }],
+              [from.id, { ...fromUserState, image: fromImage, name: fromName }],
               [
                 to,
-                { isInviteAccepted: false, restaurants: [], image: toImage },
+                {
+                  isInviteAccepted: false,
+                  restaurants: [],
+                  image: toImage,
+                  name: toName,
+                },
               ],
             ])
           );
         } else {
-          const { image: toImage } = await prisma.user.findUnique({
-            where: { name: to },
-          });
+          const { image: toImage, name: toName } = await prisma.user.findUnique(
+            {
+              where: { id: to },
+            }
+          );
 
           m.get(foodieGroupId).set(to, {
+            name: toName,
             isInviteAccepted: false,
             restaurants: [],
             image: toImage,
@@ -134,7 +151,7 @@ const mapTokenToSockets: Map<string, TokenToUserInfo> = new Map();
 
     socket.on(
       "user:invite:response",
-      async (name, foodieGroupId, userState) => {
+      async (userId, foodieGroupId, userState) => {
         const foodieGroupMap = m.get(foodieGroupId);
         if (!foodieGroupMap) return;
 
@@ -142,19 +159,19 @@ const mapTokenToSockets: Map<string, TokenToUserInfo> = new Map();
           // add socket which accepted the invite to the room
           socket.join(foodieGroupId);
 
-          foodieGroupMap.set(name, userState);
+          foodieGroupMap.set(userId, userState);
           await persistStateChangeAsync(foodieGroupMap, foodieGroupId);
 
           // we do this foreach because we want to send the invited user all group user states
-          foodieGroupMap.forEach((userState, name) => {
+          foodieGroupMap.forEach((userState, userId) => {
             io.to(foodieGroupId).emit(
               "server:state:updated",
               superjson.stringify(userState),
-              name
+              userId
             );
           });
         } else {
-          foodieGroupMap.delete(name);
+          foodieGroupMap.delete(userId);
 
           if (foodieGroupMap.size === 1) {
             m.delete(foodieGroupId);
@@ -165,7 +182,7 @@ const mapTokenToSockets: Map<string, TokenToUserInfo> = new Map();
           io.to(foodieGroupId).emit(
             "server:state:updated",
             superjson.stringify(undefined),
-            name
+            userId
           );
         }
       }
@@ -173,9 +190,9 @@ const mapTokenToSockets: Map<string, TokenToUserInfo> = new Map();
 
     socket.on(
       "user:state:updated",
-      async (name, foodieGroupId, userState: GroupUserState | undefined) => {
+      async (userId, foodieGroupId, userState) => {
         console.log("received user:state:updated event", {
-          name,
+          userId,
           foodieGroupId,
           userState,
         });
@@ -183,7 +200,7 @@ const mapTokenToSockets: Map<string, TokenToUserInfo> = new Map();
         console.log(m);
         // update group state so that we can render RT updates
         if (!m.get(foodieGroupId)) {
-          console.log(`user ${name} does not exist on FG ${foodieGroupId}`);
+          console.log(`user ${userId} does not exist on FG ${foodieGroupId}`);
           // TODO: remove this, it should theoretically exist already
           m.set(foodieGroupId, new Map());
         }
@@ -193,17 +210,17 @@ const mapTokenToSockets: Map<string, TokenToUserInfo> = new Map();
         // if userState comes undefined, it means it either left the group or signed-out
         if (!userState) {
           socket.leave(foodieGroupId);
-          foodieGroupMap.delete(name);
+          foodieGroupMap.delete(userId);
           console.log("after delete name", { foodieGroupMap });
 
           // if there is only one more member in the foodieGroup after another user left, delete the foodieGroup from the in-memory map
           if (foodieGroupMap.size === 1) {
             isOnlyOneLeft = true;
             m.delete(foodieGroupId);
-            console.log("after delete foodiegroup", { m });
+            console.log("after delete foodieGroup", { m });
           }
         } else {
-          foodieGroupMap.set(name, userState);
+          foodieGroupMap.set(userId, userState);
         }
 
         if (!isOnlyOneLeft) {
@@ -214,49 +231,36 @@ const mapTokenToSockets: Map<string, TokenToUserInfo> = new Map();
         console.log(m);
 
         console.log("emit server:state:updated", [
-          superjson.stringify(foodieGroupMap.get(name)),
-          name,
+          superjson.stringify(foodieGroupMap.get(userId)),
+          userId,
         ]);
 
         io.to(foodieGroupId).emit(
           "server:state:updated",
           superjson.stringify(userState),
-          name
+          userId
         );
       }
     );
 
-    socket.on("disconnect", async () => {
+    socket.on("disconnecting", async () => {
       const token = socket.handshake.auth.token;
 
       console.log("before disconnect before delete", {
         token,
-        mapTokenToSockets,
         socketId: socket.id,
       });
 
-      const tokenToSocketsMap = mapTokenToSockets.get(token).sockets;
-      tokenToSocketsMap.delete(socket.id);
-
-      console.log("before disconnect after delete", {
-        token,
-        mapTokenToSockets,
-        socketId: socket.id,
-      });
-
-      if (tokenToSocketsMap.size > 0) return;
+      if (io.sockets.adapter.rooms.get(token).size > 0) return;
 
       // user has no more sockets left, so set to offline
 
-      await prisma.user.update({
-        where: { id: mapTokenToSockets.get(token).userId },
-        data: { online: false },
+      await prisma.session.update({
+        where: { sessionToken: token },
+        data: { user: { update: { online: false } } },
       });
 
-      mapTokenToSockets.delete(token);
-
-      console.log("mapTokenToSockets after disconnect", {
-        mapTokenToSockets,
+      console.log("after disconnect", {
         token,
         socketId: socket.id,
       });
