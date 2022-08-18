@@ -45,29 +45,32 @@ const m: Map<string, Map<string, GroupUserState>> = new Map();
     }
   );
 
-  io.use(async (socket, next) => {
-    const token = socket.handshake.auth.token;
-    if (!token) {
-      next();
-    }
-
-    // if the room was deleted previously or is first login on server
-    if (!io.sockets.adapter.rooms.has(token)) {
-      const { userId } = await prisma.session.findFirst({
-        where: { sessionToken: token },
-      });
-
-      await prisma.user.update({
-        where: { id: userId },
-        data: { online: true },
-      });
-    }
-
-    socket.join(token);
-    next();
-  });
-
   io.on("connection", async (socket) => {
+    io.use(async (socket, next) => {
+      console.log("middleware on connection", socket.handshake.auth);
+      const token = socket.handshake.auth.token;
+
+      if (!token) {
+        next(new Error(`bad token: ${token}`));
+        return;
+      }
+
+      // if the room was deleted previously or is first login on server
+      if (!io.sockets.adapter.rooms.has(token)) {
+        const { userId } = await prisma.session.findFirst({
+          where: { sessionToken: token },
+        });
+
+        await prisma.user.update({
+          where: { id: userId },
+          data: { online: true },
+        });
+      }
+
+      socket.join(token);
+      next();
+    });
+
     socket.on("user:first:render", (foodieGroupId) => {
       const foodieGroupMap = m.get(foodieGroupId);
 
@@ -95,10 +98,12 @@ const m: Map<string, Map<string, GroupUserState>> = new Map();
           include: { sessions: true },
         });
 
+        console.log("found user's session for invite", sessions);
+
         sessions.forEach(({ sessionToken }) => {
           io.to(sessionToken).emit(
             "server:invite:sent",
-            {name: from.name, id: from.id},
+            { name: from.name, id: from.id },
             foodieGroupId
           );
         });
@@ -251,10 +256,13 @@ const m: Map<string, Map<string, GroupUserState>> = new Map();
         socketId: socket.id,
       });
 
-      if (io.sockets.adapter.rooms.get(token).size > 0) return;
+      const isLastSocketForToken =
+        io.sockets.adapter.rooms.get(token).size === 1 &&
+        io.sockets.adapter.rooms.get(token).values().next().value === socket.id;
+
+      if (!isLastSocketForToken) return;
 
       // user has no more sockets left, so set to offline
-
       await prisma.session.update({
         where: { sessionToken: token },
         data: { user: { update: { online: false } } },
