@@ -257,6 +257,7 @@ const m: Map<string, Map<string, GroupUserState>> = new Map();
       });
 
       const isLastSocketForToken =
+        io.sockets.adapter.rooms.get(token) &&
         io.sockets.adapter.rooms.get(token).size === 1 &&
         io.sockets.adapter.rooms.get(token).values().next().value === socket.id;
 
