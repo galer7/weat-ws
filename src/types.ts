@@ -1,11 +1,22 @@
 export type FoodItem = {
   name: string;
-  price: number;
+  price: string;
+  imageProps: {
+    src: string;
+    blurDataURL: string;
+  };
 };
 
 export type SelectedFoodItem = {
   originalIndex: number;
-} & FoodItem;
+  name: string;
+  price: string;
+  imageProps: {
+    src: string;
+    blurDataURL: string;
+  };
+  isImageLoading: boolean;
+};
 
 export type SelectedRestaurant = {
   name: string;

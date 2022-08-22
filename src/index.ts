@@ -27,7 +27,6 @@ const persistStateChangeAsync = async (
   foodieGroupId: string
 ) => {
   console.log("persistStateChangeAsync", { foodieGroupMap, foodieGroupId });
-  console.log(await prisma.foodieGroup.findMany({ where: {} }));
   await prisma.foodieGroup.update({
     where: { id: foodieGroupId },
     data: { foodieGroupState: superjson.stringify(foodieGroupMap) },
@@ -122,7 +121,14 @@ const m: Map<string, Map<string, GroupUserState>> = new Map();
           m.set(
             foodieGroupId,
             new Map([
-              [from.id, { ...fromUserState, image: fromImage, name: fromName }],
+              [
+                from.id,
+                {
+                  ...fromUserState,
+                  image: fromImage,
+                  name: fromName,
+                },
+              ],
               [
                 to,
                 {
@@ -202,7 +208,6 @@ const m: Map<string, Map<string, GroupUserState>> = new Map();
           userState,
         });
 
-        console.log(m);
         // update group state so that we can render RT updates
         if (!m.get(foodieGroupId)) {
           console.log(`user ${userId} does not exist on FG ${foodieGroupId}`);
@@ -232,8 +237,6 @@ const m: Map<string, Map<string, GroupUserState>> = new Map();
           // the foodieGroup from the DB is deleted through TRPC from Next.js app in this case
           await persistStateChangeAsync(foodieGroupMap, foodieGroupId);
         }
-
-        console.log(m);
 
         console.log("emit server:state:updated", [
           superjson.stringify(foodieGroupMap.get(userId)),
